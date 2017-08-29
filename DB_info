@@ -1,0 +1,91 @@
+
+sqlplus -s -M "HTML on HEAD DB_Info" "/ as sysdba" @check_info.sql > DB_info.html
+
+more check_info.sql
+--表空间
+set timing off
+set feedback off
+set pagesize 9999 
+set pagesize 9999 
+set linesize 132 
+select
+a.tablespace_name,
+a.Total_mb,
+f.Free_mb,
+round(a.total_MB-f.free_mb,2) Used_mb,
+round((f.free_MB/a.total_MB)*100) "%_Free"
+from
+(select tablespace_name, sum(bytes/(1024*1024)) total_MB from dba_data_files group by tablespace_name) a,
+(select tablespace_name, round(sum(bytes/(1024*1024))) free_MB from dba_free_space group by tablespace_name) f
+WHERE a.tablespace_name = f.tablespace_name(+)
+order by "%_Free"
+/
+
+SELECT d.tablespace_name "Name", d.status "Status", 
+       TO_CHAR (NVL (a.BYTES / 1024 / 1024, 0), '99,999,990.900') "Size (M)",
+          TO_CHAR (NVL (t.BYTES, 0) / 1024 / 1024, '99999999.999') USE,
+       TO_CHAR (NVL (t.BYTES / a.BYTES * 100, 0), '990.00') "Used %"
+  FROM SYS.dba_tablespaces d,
+       (SELECT   tablespace_name, SUM (BYTES) BYTES
+            FROM dba_temp_files
+        GROUP BY tablespace_name) a,
+       (SELECT   tablespace_name, SUM (bytes_cached) BYTES
+            FROM v$temp_extent_pool
+        GROUP BY tablespace_name) t
+ WHERE  d.tablespace_name = t.tablespace_name;
+
+--用户信息：
+set lin 200 pages 100 time on timing on
+
+select username,to_char(created,'yyyymmdd hh24:mi:') crt,account_status from dba_users order by created;
+
+col username for a20
+col profile for a20
+col default_tablespace for a20
+select username,account_status,default_tablespace,temporary_tablespace,profile from dba_users where username in (select username from dba_users where created>((select created from dba_users where username='SYSTEM')+1))  order by created;
+
+select 'create user '||name||' identified by values '''||du.password||''' default tablespace '||default_tablespace||' temporary tablespace '||temporary_tablespace||';' from user$ u,dba_users du where du.username=u.name and du.created>((select created from dba_users where username='SYSTEM')+1) order by u.ctime;
+--profile信息
+select * from dba_profiles order by profile;
+
+--查看dblink信息
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+col owner for a15
+col db_link for a20
+col host for a30
+ select owner,db_link,username,host,to_char(created,'yyyymmdd hh24:mi:ss') crt from dba_db_links order by created;
+ho more $ORACLE_HOME/network/admin/tnsnames.ora
+ho more $ORACLE_HOME/network/admin/listener*.ora
+ho more $ORACLE_HOME/network/admin/sqlnet*.ora
+ 
+--权限
+
+select * from dba_role_privs where grantee in (select username from dba_users where created>(select created from dba_users where username='SYSTEM')+1) order by grantee;
+select * from dba_sys_privs  where grantee in (select username from dba_users where created>(select created from dba_users where username='SYSTEM')+1) order by grantee;
+select * from dba_tab_privs  where grantee in (select username from dba_users where created>(select created from dba_users where username='SYSTEM')+1) order by grantee;
+
+--对象数量
+
+select owner,object_type,status,count(*) from dba_objects where owner in (select username from dba_users where created>(select created from dba_users where username='SYSTEM')+1) group by owner,object_type,status order by 1,2;
+
+
+--数据量
+select owner,sum(bytes/1024/1024/1024) gb from dba_segments where  owner in (select username from dba_users where created>(select created from dba_users where username='SYSTEM')+1) group by owner;
+
+--备份、恢复目录
+col DIRECTORY_PATH for a60
+select * from dba_directories;
+
+--查看最大对象
+col segment_name for a30
+col owner for a20
+col segment_type for a20
+select * from (select owner,segment_type,segment_name,bytes/1024/1024/1024 gb,tablespace_name from dba_segments order by bytes desc ) where rownum<50;
+
+exit
+
+
+
+
+
+
